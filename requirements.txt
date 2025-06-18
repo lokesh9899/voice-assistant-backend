@@ -14,7 +14,6 @@ torchaudio
 numpy
 scipy
 sounddevice
-pyaudio==0.2.14
 
 # Optional (if you use audio conversion or playback)
 pydub
