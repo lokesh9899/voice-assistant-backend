@@ -1,4 +1,3 @@
-# tts/resemble_tts.py
 import os
 import json
 import asyncio
@@ -17,34 +16,48 @@ if not (RESEMBLE_API_KEY and RESEMBLE_STREAM_URL):
 async def stream_tts_bytes(
     text: str,
     voice_uuid: str,
-    language: str = "en"   # e.g., "en" or "ja"
+    language: str = "en"
 ):
     """
-    Connects to Resemble WebSocket and yields MP3 chunks for the specified voice.
+    Connect to Resemble TTS WebSocket and yield audio chunks (MP3 format).
+    Gracefully handles connection and stream errors.
     """
     headers = {"Authorization": f"Token {RESEMBLE_API_KEY}"}
-    async with websockets.connect(RESEMBLE_STREAM_URL, extra_headers=headers) as ws:
-        # Request MP3 containers with chosen voice and locale
-        request = {
-            "voice_uuid":     voice_uuid,
-            "data":           text,
-            "binary_response": True,
-            "output_format":   "mp3",    # supports mp3 or wav only
-            "sample_rate":     48000,
-            "precision":       "PCM_16",
-            "language":        language
-        }
-        await ws.send(json.dumps(request))
-        print(f"🔁 Streaming TTS ({language}) from voice {voice_uuid}...")
 
-        while True:
-            frame = await ws.recv()
-            if isinstance(frame, (bytes, bytearray)):
-                # Each frame is a complete MP3 packet
-                yield frame
-            else:
-                meta = json.loads(frame)
-                if meta.get("type") == "audio_end":
+    try:
+        async with websockets.connect(RESEMBLE_STREAM_URL, extra_headers=headers) as ws:
+            request = {
+                "voice_uuid":     voice_uuid,
+                "data":           text,
+                "binary_response": True,
+                "output_format":   "mp3",
+                "sample_rate":     48000,
+                "precision":       "PCM_16",
+                "language":        language
+            }
+
+            await ws.send(json.dumps(request))
+            print(f"🔁 TTS streaming started (lang={language}, voice={voice_uuid})")
+
+            while True:
+                try:
+                    frame = await ws.recv()
+                except websockets.exceptions.ConnectionClosed as e:
+                    print(f"🔴 Resemble WS connection closed: {e}")
                     break
-                if meta.get("type") == "error":
-                    raise RuntimeError(f"TTS Error: {meta.get('message')}")
+
+                if isinstance(frame, (bytes, bytearray)):
+                    yield frame
+                else:
+                    meta = json.loads(frame)
+                    if meta.get("type") == "audio_end":
+                        print("✅ TTS streaming complete")
+                        break
+                    elif meta.get("type") == "error":
+                        error_msg = meta.get("message", "Unknown TTS error")
+                        print(f"❌ Resemble TTS error: {error_msg}")
+                        raise RuntimeError(f"TTS Error: {error_msg}")
+
+    except Exception as e:
+        print(f"❌ Exception in stream_tts_bytes: {e}")
+        raise RuntimeError(f"TTS connection or streaming failed: {e}")
