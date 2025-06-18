@@ -4,6 +4,7 @@ import json
 
 from fastapi import FastAPI, WebSocket, Query
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.websockets import WebSocketState
 
 from stt.whisper_transcriber import transcribe_audio
 from llm.openrouter_client import build_prompt, get_llm_response
@@ -61,13 +62,15 @@ async def ws_converse(ws: WebSocket, lang: str = Query("english")):
         # Step 2: Transcribe speech
         user_text = transcribe_audio(filename)
         print(f"🎤 User said: {user_text}")
-        await ws.send_json({"type": "user_transcript", "text": user_text})
+        if ws.client_state == WebSocketState.CONNECTED:
+            await ws.send_json({"type": "user_transcript", "text": user_text})
 
         # Step 3: Generate LLM reply
         prompt = build_prompt(user_text, prompt_type=lang)
         reply = get_llm_response(prompt)
         print(f"🤖 Assistant reply: {reply}")
-        await ws.send_json({"type": "assistant_text", "text": reply})
+        if ws.client_state == WebSocketState.CONNECTED:
+            await ws.send_json({"type": "assistant_text", "text": reply})
 
         # Step 4: Stream TTS
         voice_uuid = JP_VOICE_UUID if lang == "japanese" else EN_VOICE_UUID
@@ -75,16 +78,34 @@ async def ws_converse(ws: WebSocket, lang: str = Query("english")):
 
         try:
             async for chunk in stream_tts_bytes(reply, voice_uuid, language=locale_code):
-                await ws.send_bytes(chunk)
+                if ws.client_state == WebSocketState.CONNECTED:
+                    await ws.send_bytes(chunk)
+                else:
+                    print("⚠️ WS already closed during TTS.")
+                    break
         except Exception as e:
             print(f"🔴 TTS streaming error: {e}")
-            await ws.send_json({"type": "error", "text": f"TTS failed: {str(e)}"})
+            if ws.client_state == WebSocketState.CONNECTED:
+                await ws.send_json({"type": "error", "text": f"TTS failed: {str(e)}"})
 
     except Exception as e:
         print(f"❌ Unhandled server error: {e}")
-        await ws.send_json({"type": "error", "text": f"Server error: {str(e)}"})
-        await ws.close(code=1011)
+        if ws.client_state == WebSocketState.CONNECTED:
+            try:
+                await ws.send_json({"type": "error", "text": f"Server error: {str(e)}"})
+            except Exception as send_err:
+                print(f"⚠️ Failed to send error message: {send_err}")
+
+        if ws.client_state != WebSocketState.DISCONNECTED:
+            try:
+                await ws.close(code=1011)
+            except RuntimeError as e:
+                print(f"⚠️ Error closing WebSocket after failure: {e}")
 
     finally:
-        print("🧹 WebSocket connection closed cleanly")
-        await ws.close(code=1000)
+        if ws.client_state != WebSocketState.DISCONNECTED:
+            try:
+                print("🧹 Closing WebSocket connection cleanly")
+                await ws.close(code=1000)
+            except RuntimeError as e:
+                print(f"⚠️ WebSocket already closed: {e}")
