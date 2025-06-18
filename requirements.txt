@@ -1,0 +1,21 @@
+# Core Libraries
+fastapi
+uvicorn
+websockets==10.4
+httpx
+python-dotenv
+
+# Whisper STT
+openai-whisper @ git+https://github.com/openai/whisper.git
+torch
+torchaudio
+
+# Audio & Processing
+numpy
+scipy
+sounddevice
+pyaudio==0.2.14
+
+# Optional (if you use audio conversion or playback)
+pydub
+ffmpeg-python
