@@ -23,6 +23,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# A simple root endpoint
+@app.get("/")
+def read_root():
+    return {"status": "voice-assistant-backend is running"}
+
+# A health check for uptime monitoring
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
+
 @app.websocket("/ws/converse")
 async def ws_converse(ws: WebSocket, lang: str = Query("english")):
     # Supported langs: "english" or "japanese"
