@@ -1,20 +1,18 @@
 import httpx
 from config import OPENROUTER_API_KEY
 
-# prompt builder
+# Prompt builder for English and Japanese
 def build_prompt(user_text: str, prompt_type: str = "english") -> str:
-     if prompt_type == "japanese":
-         base_prompt = """You are a friendly Japanese-speaking AI assistant. You receive questions in English and reply in fluent, spoken-style Japanese.
+    if prompt_type == "japanese":
+        base_prompt = """You are a friendly Japanese-speaking AI assistant. You receive questions in English and reply in fluent, spoken-style Japanese.
 
 Your output must follow these rules:
 - Translate the input into natural, emotional Japanese
 - Speak like a native Japanese speaker, not like a textbook
 - Make it sound like real conversation — soft, expressive, and polite
 - Use casual tone when appropriate, but stay friendly and helpful
-- Do not repeat or explain the English input and dont use english words in your response
-- Do not break and make annoying sounds and pause in your response be confident and speak fluent
-- your speech should be like a melody sounds like a native speaker
-- don't break inbetween words
+- Do not repeat or explain the English input and don’t use English words in your response
+- Be confident and fluent — avoid robotic pauses or filler sounds
 
 Here are examples:
 
@@ -29,10 +27,11 @@ Output:
 Input: Tell me about artificial intelligence.
 Output:  
 人工知能、つまりAIは、人間のように考えたり学んだりする技術で、これからの未来に欠かせない存在です。
+
 Now respond in the same way to this input:
 Input: """
-     else:  # English prompt
-         base_prompt = """
+    else:
+        base_prompt = """
 You are a friendly and expressive English-speaking AI assistant. Your job is to take the user's input and respond with spoken-style English that feels natural, warm, and conversational.
 
 Your output must follow these rules:
@@ -41,32 +40,24 @@ Your output must follow these rules:
 - Use contractions and everyday language
 - Add a touch of personality and warmth to your reply
 - Keep responses helpful, concise, and emotionally engaging
-- must include 2 ssml tags in your response that add expressiveness to your speech
-- don't break inbetween words
+- Must include at least 2 SSML tags for expressiveness
 
 <!-- SSML Tags Supported by Resemble AI -->
-Use only these SSML tags to add expressiveness to your speech:
+Use only these SSML tags:
 - <speak> … </speak> (wrap entire response)
 - <prosody pitch="x-high|high|medium|low|x-low" rate="<percent>%" volume="x-loud|loud|medium|soft|x-soft">…</prosody>
-- <emphasis level="strong|reduced">…</emphasis>
 - <break time="<ms>ms"/> or time="<s>s"
+- <lang xml:lang="en-US">…</lang>
 - <resemble:emotion pitch="<0-1>" rate="<0-1>">…</resemble:emotion>
 
-Wrap your final output in a single <speak> tag with only these tags.
-
-Examples:
-<speak>
-  This is <emphasis level="strong">really</emphasis> important.
-  <break time="300ms"/>
-  Speak a bit <prosody pitch="fast" rate="120%">faster</prosody> now.
-</speak>
+Your response should sound like a real person talking.
 
 Now respond in the same way to this input:
 Input: """
 
-     return base_prompt + user_text.strip()
+    return base_prompt.strip() + " " + user_text.strip()
 
-# LLM call
+# LLM call to OpenRouter
 def get_llm_response(prompt: str) -> str:
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -76,7 +67,7 @@ def get_llm_response(prompt: str) -> str:
     }
 
     payload = {
-        "model": "mistralai/mistral-7b-instruct",
+        "model": "mistralai/mistral-7b-instruct",  # You can swap this with "google/gemma-7b" etc.
         "stream": False,
         "messages": [
             {"role": "system", "content": prompt}
@@ -84,7 +75,7 @@ def get_llm_response(prompt: str) -> str:
     }
 
     try:
-        print("Calling LLM (OpenRouter)...")
+        print("📡 Calling OpenRouter LLM...")
         response = httpx.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers=headers,
@@ -92,10 +83,21 @@ def get_llm_response(prompt: str) -> str:
             timeout=60.0
         )
         response.raise_for_status()
+
         result = response.json()
-        return result["choices"][0]["message"]["content"]
+
+        # Defensive handling of unexpected structure
+        if "choices" in result and result["choices"]:
+            message = result["choices"][0]["message"]["content"].strip()
+            print("🤖 LLM responded.")
+            return message
+        else:
+            print("⚠️ LLM response missing 'choices'")
+            return "Sorry, I couldn’t generate a response."
+
     except httpx.HTTPStatusError as e:
-        print("HTTP error:", e.response.status_code, e.response.text)
+        print("❌ HTTP error:", e.response.status_code, e.response.text)
     except Exception as e:
-        print("LLM API call failed:", e)
+        print("❌ LLM API call failed:", e)
+
     return "Sorry, something went wrong."
